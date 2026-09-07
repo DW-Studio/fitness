@@ -51,18 +51,9 @@ function nextTrainDate(dateStr: string): string {
   }
   return addDaysStr(dateStr, 1);
 }
-// from 之后（不含）到 to 之前（不含）之间的训练日数量
-function trainDaysBetween(from: string, to: string): number {
-  let count = 0;
-  for (let i = 1; i < diffDaysStr(from, to); i++) {
-    if (isTrainDay(addDaysStr(from, i))) count++;
-  }
-  return count;
-}
-// prev 之后第 (n+1) 个训练日该练什么（n 为中间训练日数）
-function dayFor(prev: HistoryEntry | null, dateStr: string): "A" | "B" {
-  if (!prev) return "A";
-  return (trainDaysBetween(prev.date, dateStr) % 2 === 0) ? flip(prev.day) : prev.day;
+// 固定映射：周一=A、周三=B、周五=A（A 一周2次，B 一周1次）
+function dayOf(dateStr: string): "A" | "B" {
+  return weekday(dateStr) === 3 ? "B" : "A";
 }
 
 function sortHistory(history: HistoryEntry[]) {
@@ -77,13 +68,18 @@ function computeDay(history: HistoryEntry[], defer: Defer | null, started: boole
   }
   const sorted = sortHistory(history);
   const last = sorted.length ? sorted[sorted.length - 1] : null;
-  if (!last) return started ? { kind: "train", day: "A" } : { kind: "first" };
+  if (!last) {
+    if (!started) return { kind: "first" };
+    if (isTrainDay(dateStr)) return { kind: "train", day: dayOf(dateStr) };
+    const nd = nextTrainDate(dateStr);
+    return { kind: "rest", nextDate: nd, nextDay: dayOf(nd) };
+  }
   if (last.date === dateStr) return { kind: "done", day: last.day };
   if (isTrainDay(dateStr)) {
-    return { kind: "train", day: dayFor(last, dateStr) };
+    return { kind: "train", day: dayOf(dateStr) };
   }
   const nd = nextTrainDate(dateStr);
-  return { kind: "rest", nextDate: nd, nextDay: dayFor(last, nd) };
+  return { kind: "rest", nextDate: nd, nextDay: dayOf(nd) };
 }
 
 // ---------- 日历格子状态 ----------
@@ -101,7 +97,7 @@ function classifyDate(history: HistoryEntry[], dateStr: string): CellStatus {
   const today = todayStr();
   const sorted = sortHistory(history);
   if (!sorted.length) {
-    return dateStr === today ? { type: "pending", day: "A" } : { type: "none" };
+    return dateStr === today ? { type: "pending", day: dayOf(dateStr) } : { type: "none" };
   }
   let prev: HistoryEntry | undefined;
   for (let i = sorted.length - 1; i >= 0; i--) {
@@ -109,7 +105,7 @@ function classifyDate(history: HistoryEntry[], dateStr: string): CellStatus {
   }
   if (!prev) return { type: "none" };
   if (!isTrainDay(dateStr)) return { type: "rest" };
-  const day = dayFor(prev, dateStr);
+  const day = dayOf(dateStr);
   if (dateStr < today) return { type: "miss", day };
   if (dateStr === today) return { type: "pending", day };
   return { type: "plan", day };
