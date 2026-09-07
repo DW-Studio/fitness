@@ -35,6 +35,36 @@ type TodayStatus =
 
 const flip = (d: "A" | "B"): "A" | "B" => (d === "A" ? "B" : "A");
 
+// ---------- 训练节奏：周一/三/五训练，A/B 交替 ----------
+function weekday(dateStr: string): number {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay(); // 0=周日 1=周一 ... 6=周六
+}
+function isTrainDay(dateStr: string): boolean {
+  const wd = weekday(dateStr);
+  return wd === 1 || wd === 3 || wd === 5;
+}
+function nextTrainDate(dateStr: string): string {
+  for (let i = 1; i <= 4; i++) {
+    const nd = addDaysStr(dateStr, i);
+    if (isTrainDay(nd)) return nd;
+  }
+  return addDaysStr(dateStr, 1);
+}
+// from 之后（不含）到 to 之前（不含）之间的训练日数量
+function trainDaysBetween(from: string, to: string): number {
+  let count = 0;
+  for (let i = 1; i < diffDaysStr(from, to); i++) {
+    if (isTrainDay(addDaysStr(from, i))) count++;
+  }
+  return count;
+}
+// prev 之后第 (n+1) 个训练日该练什么（n 为中间训练日数）
+function dayFor(prev: HistoryEntry | null, dateStr: string): "A" | "B" {
+  if (!prev) return "A";
+  return (trainDaysBetween(prev.date, dateStr) % 2 === 0) ? flip(prev.day) : prev.day;
+}
+
 function sortHistory(history: HistoryEntry[]) {
   return [...history].sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -48,14 +78,12 @@ function computeDay(history: HistoryEntry[], defer: Defer | null, started: boole
   const sorted = sortHistory(history);
   const last = sorted.length ? sorted[sorted.length - 1] : null;
   if (!last) return started ? { kind: "train", day: "A" } : { kind: "first" };
-  const diff = diffDaysStr(last.date, dateStr);
-  if (diff === 0) return { kind: "done", day: last.day };
-  if (diff % 2 === 0) {
-    return { kind: "train", day: diff % 4 === 0 ? last.day : flip(last.day) };
+  if (last.date === dateStr) return { kind: "done", day: last.day };
+  if (isTrainDay(dateStr)) {
+    return { kind: "train", day: dayFor(last, dateStr) };
   }
-  const nextDate = addDaysStr(dateStr, 1);
-  const nextDay: "A" | "B" = (diff + 1) % 4 === 0 ? last.day : flip(last.day);
-  return { kind: "rest", nextDate, nextDay };
+  const nd = nextTrainDate(dateStr);
+  return { kind: "rest", nextDate: nd, nextDay: dayFor(last, nd) };
 }
 
 // ---------- 日历格子状态 ----------
@@ -80,9 +108,8 @@ function classifyDate(history: HistoryEntry[], dateStr: string): CellStatus {
     if (sorted[i].date < dateStr) { prev = sorted[i]; break; }
   }
   if (!prev) return { type: "none" };
-  const diff = diffDaysStr(prev.date, dateStr);
-  if (diff % 2 === 1) return { type: "rest" };
-  const day: "A" | "B" = diff % 4 === 0 ? prev.day : flip(prev.day);
+  if (!isTrainDay(dateStr)) return { type: "rest" };
+  const day = dayFor(prev, dateStr);
   if (dateStr < today) return { type: "miss", day };
   if (dateStr === today) return { type: "pending", day };
   return { type: "plan", day };
@@ -361,7 +388,7 @@ export default function Home() {
       {today.kind === "first" && (
         <div className="onboard">
           <div className="onboard-title">上次训练是？</div>
-          <div className="onboard-sub">告诉我上次练了什么，我好按练一休一算今天该干嘛</div>
+          <div className="onboard-sub">告诉我上次练了什么，我好按周一/三/五算今天该干嘛</div>
           <button className="btn" onClick={() => initHistory(addDaysStr(todayStr(), -1), "A")}>昨天练了 A 日</button>
           <button className="btn ghost" onClick={() => initHistory(addDaysStr(todayStr(), -1), "B")}>昨天练了 B 日</button>
           <button className="btn ghost" onClick={() => initHistory(todayStr(), null)}>今天第一次练</button>
