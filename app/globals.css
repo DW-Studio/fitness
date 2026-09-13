@@ -40,7 +40,7 @@ body {
   transition: background .2s ease, color .2s ease;
 }
 
-.phone { width: 100%; max-width: 100%; margin: 0 auto; min-height: 100vh; padding: 0 18px 110px; }
+.phone { width: 100%; max-width: 100%; margin: 0 auto; min-height: 100vh; padding: 0 18px 200px; }
 @media (min-width: 480px) {
   .phone { max-width: 390px; }
 }
