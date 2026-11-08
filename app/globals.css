@@ -145,6 +145,12 @@ body {
 .cal-d.cal-a { background: var(--soft); color: var(--accent); }
 .cal-d.cal-b { background: #eaf1fe; color: #3b82f6; }
 [data-theme="dark"] .cal-d.cal-b { background: #182238; color: #60a5fa; }
+.cal-d.cal-c { background: #f7ecfe; color: #a855f7; }
+[data-theme="dark"] .cal-d.cal-c { background: #2a1b38; color: #c084fc; }
+.cal-d.cal-d { background: #fff4e5; color: #d97706; }
+[data-theme="dark"] .cal-d.cal-d { background: #362a17; color: #fbbf24; }
+.cal-d.cal-e { background: var(--soft); color: var(--sub); }
+.cal-d.cal-opt { color: var(--muted); outline: 1px dotted var(--track); outline-offset: -1px; }
 .cal-d.cal-miss { background: #fee2e2; color: #dc2626; }
 [data-theme="dark"] .cal-d.cal-miss { background: #3f1d1d; color: #f87171; }
 .cal-d.cal-pending { outline: 2px dashed var(--accent); outline-offset: 1px; }

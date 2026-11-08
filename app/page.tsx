@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { plans } from "../plan";
+import { plans, type DayKey } from "../plan";
 
 // ---------- 日期工具 ----------
 function pad(n: number) { return String(n).padStart(2, "0"); }
@@ -23,37 +23,35 @@ function todayText() {
 }
 
 // ---------- 训练计划状态 ----------
-type HistoryEntry = { date: string; day: "A" | "B"; done: string[] };
-type Defer = { date: string; day: "A" | "B" };
+type HistoryEntry = { date: string; day: DayKey; done: string[] };
+type Defer = { date: string; day: DayKey };
 type PlanState = { history: HistoryEntry[]; defer: Defer | null; started: boolean };
 
 type TodayStatus =
   | { kind: "first" }
-  | { kind: "train"; day: "A" | "B" }
-  | { kind: "done"; day: "A" | "B" }
-  | { kind: "rest"; nextDate: string; nextDay: "A" | "B" };
+  | { kind: "train"; day: DayKey }
+  | { kind: "done"; day: DayKey }
+  | { kind: "rest"; nextDate: string; nextDay: DayKey };
 
-const flip = (d: "A" | "B"): "A" | "B" => (d === "A" ? "B" : "A");
-
-// ---------- 训练节奏：周一/三/五训练，A/B 交替 ----------
+// ---------- 训练节奏：周一/三/五/六训练，周日可选 ----------
 function weekday(dateStr: string): number {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d).getDay(); // 0=周日 1=周一 ... 6=周六
 }
+// 周一=上肢A、周三=下肢A、周五=上肢B、周六=下肢B、周日=可选日
+const SCHEDULE: Record<number, DayKey> = { 1: "A", 3: "B", 5: "C", 6: "D", 0: "E" };
 function isTrainDay(dateStr: string): boolean {
-  const wd = weekday(dateStr);
-  return wd === 1 || wd === 3 || wd === 5;
+  return SCHEDULE[weekday(dateStr)] !== undefined;
 }
 function nextTrainDate(dateStr: string): string {
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= 7; i++) {
     const nd = addDaysStr(dateStr, i);
     if (isTrainDay(nd)) return nd;
   }
   return addDaysStr(dateStr, 1);
 }
-// 固定映射：周一=A、周三=B、周五=A（A 一周2次，B 一周1次）
-function dayOf(dateStr: string): "A" | "B" {
-  return weekday(dateStr) === 3 ? "B" : "A";
+function dayOf(dateStr: string): DayKey {
+  return SCHEDULE[weekday(dateStr)] ?? "A";
 }
 
 function sortHistory(history: HistoryEntry[]) {
@@ -84,11 +82,12 @@ function computeDay(history: HistoryEntry[], defer: Defer | null, started: boole
 
 // ---------- 日历格子状态 ----------
 type CellStatus =
-  | { type: "done"; day: "A" | "B" }
+  | { type: "done"; day: DayKey }
   | { type: "rest" }
-  | { type: "miss"; day: "A" | "B" }
-  | { type: "pending"; day: "A" | "B" }
-  | { type: "plan"; day: "A" | "B" }
+  | { type: "optional"; day: DayKey }
+  | { type: "miss"; day: DayKey }
+  | { type: "pending"; day: DayKey }
+  | { type: "plan"; day: DayKey }
   | { type: "none" };
 
 function classifyDate(history: HistoryEntry[], dateStr: string): CellStatus {
@@ -106,6 +105,8 @@ function classifyDate(history: HistoryEntry[], dateStr: string): CellStatus {
   if (!prev) return { type: "none" };
   if (!isTrainDay(dateStr)) return { type: "rest" };
   const day = dayOf(dateStr);
+  // 周日是可选项：不打卡也不算缺勤
+  if (day === "E") return { type: "optional", day };
   if (dateStr < today) return { type: "miss", day };
   if (dateStr === today) return { type: "pending", day };
   return { type: "plan", day };
@@ -118,7 +119,7 @@ function monthStats(history: HistoryEntry[], year: number, month: number) {
     const st = classifyDate(history, toStr(new Date(year, month, d)));
     if (st.type === "done") done++;
     else if (st.type === "miss") miss++;
-    else if (st.type === "rest") rest++;
+    else if (st.type === "rest" || st.type === "optional") rest++;
   }
   return { done, miss, rest };
 }
@@ -158,12 +159,13 @@ function Calendar({ history, onBackfill }: { history: HistoryEntry[]; onBackfill
     const isToday = dateStr === today;
     let label = "";
     let cls = "none";
-    if (st.type === "done") { label = st.day; cls = st.day === "A" ? "a" : "b"; }
+    if (st.type === "done") { label = st.day; cls = st.day.toLowerCase(); }
     else if (st.type === "rest") { label = "休"; cls = "rest"; }
+    else if (st.type === "optional") { label = "选"; cls = "opt"; }
     else if (st.type === "miss") { label = "缺"; cls = "miss"; }
     else if (st.type === "pending") { label = st.day; cls = "pending"; }
     else if (st.type === "plan") { label = st.day; cls = "plan"; }
-    const clickable = st.type === "miss" || st.type === "done";
+    const clickable = st.type === "miss" || st.type === "done" || st.type === "optional";
     return (
       <div
         key={dateStr}
@@ -289,10 +291,10 @@ export default function Home() {
   const tomorrow = computeDay(planState.history, planState.defer, planState.started, addDaysStr(todayStr(), 1));
   const tomorrowText =
     tomorrow.kind === "rest" ? "明天 · 休息"
-    : tomorrow.kind === "train" ? `明天 · ${tomorrow.day}日`
+    : tomorrow.kind === "train" ? `明天 · ${plans[tomorrow.day].name}`
     : "";
 
-  const curDay: "A" | "B" = today.kind === "train" ? today.day : today.kind === "done" ? today.day : "A";
+  const curDay: DayKey = today.kind === "train" ? today.day : today.kind === "done" ? today.day : "A";
   const plan = plans[curDay];
   const todayDone = today.kind === "done"
     ? planState.history.find((h) => h.date === todayStr())?.done || []
@@ -310,12 +312,12 @@ export default function Home() {
     setPlanState({ ...planState, defer: { date: addDaysStr(todayStr(), 1), day: curDay } });
   }
 
-  function initHistory(dateStr: string, d: "A" | "B" | null) {
+  function initHistory(dateStr: string, d: DayKey | null) {
     const history = d ? [{ date: dateStr, day: d, done: [] }] : [];
     setPlanState({ history, defer: null, started: true });
   }
 
-  function backfill(dateStr: string, day: "A" | "B") {
+  function backfill(dateStr: string, day: DayKey) {
     const history = sortHistory([
       ...planState.history.filter((h) => h.date !== dateStr),
       { date: dateStr, day, done: [] },
@@ -384,9 +386,12 @@ export default function Home() {
       {today.kind === "first" && (
         <div className="onboard">
           <div className="onboard-title">上次训练是？</div>
-          <div className="onboard-sub">告诉我上次练了什么，我好按周一/三/五算今天该干嘛</div>
-          <button className="btn" onClick={() => initHistory(addDaysStr(todayStr(), -1), "A")}>昨天练了 A 日</button>
-          <button className="btn ghost" onClick={() => initHistory(addDaysStr(todayStr(), -1), "B")}>昨天练了 B 日</button>
+          <div className="onboard-sub">告诉我上次练了什么，我好按周一/三/五/六算今天该干嘛</div>
+          {(["A", "B", "C", "D"] as DayKey[]).map((k, i) => (
+            <button key={k} className={i === 0 ? "btn" : "btn ghost"} onClick={() => initHistory(addDaysStr(todayStr(), -1), k)}>
+              昨天练了 {plans[k].name} · {plans[k].focus}
+            </button>
+          ))}
           <button className="btn ghost" onClick={() => initHistory(todayStr(), null)}>今天第一次练</button>
         </div>
       )}
@@ -394,7 +399,7 @@ export default function Home() {
       {today.kind === "rest" && (
         <div className="rest-view">
           <div className="today">今天休息</div>
-          <div className="sub">下次训练 · {today.nextDate.slice(5).replace("-", "月")}日 · {today.nextDay}日</div>
+          <div className="sub">下次训练 · {today.nextDate.slice(5).replace("-", "月")}日 · {plans[today.nextDay].name}</div>
           <div className="calendar-wrap">
             <Calendar history={planState.history} onBackfill={(d) => setBackfillDate(d)} />
           </div>
@@ -473,15 +478,18 @@ export default function Home() {
             <div className="modal-title">补签 · {backfillDate.slice(5).replace("-", "月")}日</div>
             {existing ? (
               <>
-                <div className="modal-sub">这天已记录为 {existing.day} 日</div>
+                <div className="modal-sub">这天已记录为 {plans[existing.day].name}</div>
                 <button className="btn ghost" onClick={() => removeEntry(backfillDate)}>删除这次记录</button>
                 <button className="btn ghost" onClick={() => setBackfillDate(null)}>取消</button>
               </>
             ) : (
               <>
                 <div className="modal-sub">这天你练了哪个？</div>
-                <button className="btn" onClick={() => backfill(backfillDate, "A")}>练了 A 日 · {plans.A.focus}</button>
-                <button className="btn ghost" onClick={() => backfill(backfillDate, "B")}>练了 B 日 · {plans.B.focus}</button>
+                {(["A", "B", "C", "D", "E"] as DayKey[]).map((k, i) => (
+                  <button key={k} className={i === 0 ? "btn" : "btn ghost"} onClick={() => backfill(backfillDate, k)}>
+                    {plans[k].name} · {plans[k].focus}
+                  </button>
+                ))}
                 <button className="btn ghost" onClick={() => setBackfillDate(null)}>取消</button>
               </>
             )}
